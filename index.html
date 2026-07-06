@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>星際單字保衛戰 - 英文學習遊戲</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts for retro/pixel/modern look -->
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body {
+      font-family: 'Noto Sans TC', 'Fredoka One', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .game-font {
+      font-family: 'Fredoka One', 'Noto Sans TC', sans-serif;
+    }
+    /* 閃爍動畫 */
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 0.8; }
+    }
+    .star-glow {
+      animation: pulse-slow 3s infinite;
+    }
+    /* 鍵盤震動動畫 */
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-4px); }
+      75% { transform: translateX(4px); }
+    }
+    .shake-error {
+      animation: shake 0.2s ease-in-out 2;
+    }
+    /* 簡單的粒子淡出 */
+    @keyframes particle-fade {
+      to {
+        transform: translate(var(--tw-translate-x), var(--tw-translate-y)) scale(0.5);
+        opacity: 0;
+      }
+    }
+    .correct-particle {
+      animation: particle-fade 0.8s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+    }
+  </style>
+</head>
+<body class="bg-gray-950 text-white min-h-screen flex flex-col justify-between overflow-hidden relative">
+
+  <!-- 背景星空效果 (Canvas 繪製，提升流暢度與質感) -->
+  <canvas id="starfield" class="absolute inset-0 pointer-events-none z-0"></canvas>
+
+  <!-- ==================== 頂部資訊列 ==================== -->
+  <header class="relative z-10 px-4 pt-4 pb-2 flex justify-between items-center max-w-4xl mx-auto w-full select-none gap-2">
+    <!-- 左側：分數與最高分 -->
+    <div class="flex items-center space-x-2">
+      <div class="bg-gray-900/80 backdrop-blur border border-indigo-500/30 rounded-xl px-3 py-1 sm:px-4 sm:py-1.5 shadow-lg shadow-indigo-500/10">
+        <div class="text-[10px] sm:text-xs text-indigo-300 font-bold tracking-wider">SCORE</div>
+        <div id="score-display" class="text-base sm:text-2xl font-black text-yellow-400 game-font">0</div>
+      </div>
+      <div class="hidden sm:block bg-gray-900/50 backdrop-blur border border-gray-700/50 rounded-xl px-3 py-1.5">
+        <div class="text-[10px] text-gray-400 font-bold tracking-wider">HIGH SCORE</div>
+        <div id="highscore-display" class="text-sm font-bold text-gray-300 game-font">0</div>
+      </div>
+    </div>
+
+    <!-- 中間：限時三十秒倒數計時器 -->
+    <div class="bg-gray-900/80 backdrop-blur border border-cyan-500/30 rounded-xl px-4 py-1.5 shadow-lg shadow-cyan-500/10 flex flex-col items-center justify-center min-w-[70px] sm:min-w-[90px]">
+      <div class="text-[10px] sm:text-xs text-cyan-300 font-bold tracking-wider flex items-center gap-1">
+        <i data-lucide="clock" class="w-3 h-3 text-cyan-400"></i> TIMER
+      </div>
+      <div id="timer-display" class="text-base sm:text-2xl font-black text-cyan-400 game-font transition-all duration-300">30s</div>
+    </div>
+
+    <!-- 右側：生命值與音效控制 -->
+    <div class="flex items-center space-x-2">
+      <!-- 靜音切換 -->
+      <button id="sound-btn" class="bg-gray-900/80 hover:bg-gray-800 border border-gray-700 rounded-xl p-2 transition active:scale-95" title="切換音效">
+        <i id="sound-icon" data-lucide="volume-2" class="w-4 h-4 sm:w-5 sm:h-5 text-gray-300"></i>
+      </button>
+
+      <!-- 生命值愛心 -->
+      <div class="bg-gray-900/80 backdrop-blur border border-pink-500/30 rounded-xl px-3 py-1.5 flex items-center space-x-1 shadow-lg shadow-pink-500/10">
+        <div class="text-[10px] text-pink-300 font-bold mr-1 hidden xs:block">LIVES</div>
+        <div id="hearts-container" class="flex space-x-0.5 sm:space-x-1">
+          <!-- JS 動態生成 -->
+          <i data-lucide="heart" class="w-4 h-4 sm:w-5 sm:h-5 fill-pink-500 text-pink-500 transition-all duration-300"></i>
+          <i data-lucide="heart" class="w-4 h-4 sm:w-5 sm:h-5 fill-pink-500 text-pink-500 transition-all duration-300"></i>
+          <i data-lucide="heart" class="w-4 h-4 sm:w-5 sm:h-5 fill-pink-500 text-pink-500 transition-all duration-300"></i>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== 核心遊戲區域（單字掉落區） ==================== -->
+  <main id="game-zone" class="relative flex-grow w-full max-w-4xl mx-auto overflow-hidden bg-gradient-to-b from-gray-950 via-gray-950/40 to-indigo-950/20 border-x border-gray-800/40 rounded-3xl my-2 shadow-2xl relative">
+    
+    <!-- 激光防線 (底部警示線) -->
+    <div class="absolute bottom-6 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-80 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.8)] z-10"></div>
+    <div class="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-red-950/30 to-transparent pointer-events-none z-10"></div>
+
+    <!-- 粒子發散容器 -->
+    <div id="effects-container" class="absolute inset-0 pointer-events-none z-20"></div>
+
+    <!-- 掉落中的單字本體 (JS 動態生成放入此處) -->
+    <div id="words-container" class="absolute inset-0 overflow-hidden z-10"></div>
+
+    <!-- 遊戲初期導引 (無單字時顯示) -->
+    <div id="game-guide" class="absolute inset-0 flex flex-col justify-center items-center text-center p-6 bg-gray-950/80 backdrop-blur-sm z-30 transition-all duration-500">
+      <div class="bg-gradient-to-b from-indigo-900/40 to-purple-950/40 border border-indigo-500/30 p-8 rounded-3xl max-w-md shadow-2xl">
+        <div class="w-16 h-16 bg-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-indigo-400/30">
+          <i data-lucide="graduation-cap" class="w-8 h-8"></i>
+        </div>
+        <h2 class="text-2xl font-black text-cyan-400 mb-2">準備好開始保衛戰了嗎？</h2>
+        <p class="text-gray-300 text-sm mb-6 leading-relaxed">
+          英文字母太空船正在航向地球！<br>
+          觀察掉落單字中<strong>被隱藏的底線 ＿</strong>，按下鍵盤上對應正確的字母，就能發射脈衝波擊落它們！
+        </p>
+        <button id="start-btn" class="w-full bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-black py-4 px-6 rounded-2xl shadow-lg shadow-indigo-500/30 transform active:scale-95 transition-all duration-150 text-lg tracking-wider flex items-center justify-center gap-2">
+          <i data-lucide="play" class="w-5 h-5 fill-current"></i>
+          開始遊戲 START
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ==================== 底部虛擬鍵盤（加大按鍵） ==================== -->
+  <footer class="relative z-10 w-full max-w-4xl mx-auto px-4 pb-6 select-none">
+    <div class="bg-gray-900/95 backdrop-blur-md border border-gray-800 rounded-2xl p-4 shadow-2xl shadow-black/60">
+      <!-- 鍵盤第一排 (Q-P) -->
+      <div class="flex justify-center gap-2 mb-3">
+        <button class="kbd-btn" data-key="Q">Q</button>
+        <button class="kbd-btn" data-key="W">W</button>
+        <button class="kbd-btn" data-key="E">E</button>
+        <button class="kbd-btn" data-key="R">R</button>
+        <button class="kbd-btn" data-key="T">T</button>
+        <button class="kbd-btn" data-key="Y">Y</button>
+        <button class="kbd-btn" data-key="U">U</button>
+        <button class="kbd-btn" data-key="I">I</button>
+        <button class="kbd-btn" data-key="O">O</button>
+        <button class="kbd-btn" data-key="P">P</button>
+      </div>
+      <!-- 鍵盤第二排 (A-L) -->
+      <div class="flex justify-center gap-2 mb-3 px-4">
+        <button class="kbd-btn" data-key="A">A</button>
+        <button class="kbd-btn" data-key="S">S</button>
+        <button class="kbd-btn" data-key="D">D</button>
+        <button class="kbd-btn" data-key="F">F</button>
+        <button class="kbd-btn" data-key="G">G</button>
+        <button class="kbd-btn" data-key="H">H</button>
+        <button class="kbd-btn" data-key="J">J</button>
+        <button class="kbd-btn" data-key="K">K</button>
+        <button class="kbd-btn" data-key="L">L</button>
+      </div>
+      <!-- 鍵盤第三排 (Z-M) -->
+      <div class="flex justify-center gap-2 px-10">
+        <button class="kbd-btn" data-key="Z">Z</button>
+        <button class="kbd-btn" data-key="X">X</button>
+        <button class="kbd-btn" data-key="C">C</button>
+        <button class="kbd-btn" data-key="V">V</button>
+        <button class="kbd-btn" data-key="B">B</button>
+        <button class="kbd-btn" data-key="N">N</button>
+        <button class="kbd-btn" data-key="M">M</button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ==================== 結算 / 結束遊戲彈窗 ==================== -->
+  <div id="game-over-modal" class="hidden fixed inset-0 bg-gray-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 transition-all duration-300">
+    <div class="bg-gradient-to-b from-gray-900 to-indigo-950 border border-pink-500/40 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl relative overflow-hidden">
+      
+      <!-- 裝飾用霓虹球 -->
+      <div class="absolute -top-12 -left-12 w-24 h-24 bg-pink-500/20 rounded-full blur-xl"></div>
+      <div class="absolute -bottom-12 -right-12 w-24 h-24 bg-cyan-500/20 rounded-full blur-xl"></div>
+
+      <div class="w-16 h-16 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+        <!-- 圖標由 JS 根據結束原因動態設定 -->
+      </div>
+
+      <h2 class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-pink-400 to-purple-400 mb-2">
+        防線失守！
+      </h2>
+      <p id="motivational-msg" class="text-indigo-200 text-sm mb-6 px-4">
+        太可惜了！再挑戰一次，相信你可以把剛才記住的單字全部拼對！
+      </p>
+
+      <!-- 統計數據板 -->
+      <div class="bg-black/40 rounded-2xl p-4 mb-6 border border-gray-800 grid grid-cols-2 gap-4">
+        <div>
+          <div class="text-[10px] text-gray-400 font-bold tracking-wider">防衛分數</div>
+          <div id="final-score" class="text-3xl font-black text-yellow-400 game-font">0</div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-400 font-bold tracking-wider">最高紀錄</div>
+          <div id="final-highscore" class="text-xl font-bold text-gray-200 game-font">0</div>
+        </div>
+        <div class="col-span-2 pt-2 border-t border-gray-800 flex justify-between px-2 text-xs">
+          <span class="text-gray-400">答對題數：</span>
+          <span id="stat-solved" class="font-bold text-cyan-400">0 題</span>
+        </div>
+      </div>
+
+      <!-- 按鈕 -->
+      <div class="space-y-2">
+        <button id="restart-btn" class="w-full bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-black py-4 px-6 rounded-2xl shadow-lg shadow-indigo-500/20 transform active:scale-95 transition-all duration-150 flex items-center justify-center gap-2">
+          <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+          再戰一次 RETRY
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TailWind 特有虛擬鍵盤按鈕加大版基礎樣式 -->
+  <style>
+    .kbd-btn {
+      @apply bg-gray-800/80 hover:bg-gray-700 active:scale-90 text-white font-black text-base sm:text-2xl rounded-2xl h-14 sm:h-20 flex-1 max-w-[70px] sm:max-w-[85px] transition-all duration-75 border-b-4 border-gray-950 active:border-b-0 flex items-center justify-center cursor-pointer shadow-md select-none touch-manipulation;
+    }
+    .kbd-btn-active {
+      @apply bg-indigo-500/40 border-indigo-600 scale-95;
+    }
+    .kbd-btn-error {
+      @apply bg-red-600 text-white border-red-800 shake-error;
+    }
+    .kbd-btn-success {
+      @apply bg-emerald-500 text-white border-emerald-700;
+    }
+  </style>
+
+  <script>
+    // ==================== 1. 初始化與遊戲設定 ====================
+    // 精選國小必備常見核心單字陣列 (含中文提示，幫助學童加深連結)
+    const VOCABULARY = [
+      { english: "APPLE", chinese: "蘋果" },
+      { english: "BANANA", chinese: "香蕉" },
+      { english: "TIGER", chinese: "老虎" },
+      { english: "ZEBRA", chinese: "斑馬" },
+      { english: "ELEPHANT", chinese: "大象" },
+      { english: "GIRAFFE", chinese: "長頸鹿" },
+      { english: "MONKEY", chinese: "猴子" },
+      { english: "ORANGE", chinese: "柳橙" },
+      { english: "MELON", chinese: "甜瓜" },
+      { english: "FLOWER", chinese: "花朵" },
+      { english: "RABBIT", chinese: "兔子" },
+      { english: "SCHOOL", chinese: "學校" },
+      { english: "DOCTOR", chinese: "醫生" },
+      { english: "FATHER", chinese: "爸爸" },
+      { english: "MOTHER", chinese: "媽媽" },
+      { english: "YELLOW", chinese: "黃色" },
+      { english: "WINDOW", chinese: "窗戶" },
+      { english: "TOMATO", chinese: "番茄" },
+      { english: "COOKIE", chinese: "餅乾" },
+      { english: "PENCIL", chinese: "鉛筆" }
+    ];
+
+    // 遊戲運行狀態變數
+    let score = 0;
+    let highscore = parseInt(localStorage.getItem('defense_high_score') || '0');
+    let lives = 3;
+    let timeLeft = 30; // 30 秒限時機制
+    let gameActive = false;
+    let isSoundOn = true;
+    let currentWordObj = null; 
+    let currentWordState = null; // 當前單字的詳細拼寫與狀態
+    let lastTime = 0;
+    let speedMultiplier = 1.0; // 隨著分數增長動態加倍難度 (ZPD鷹架)
+    let animationFrameId = null;
+    let timerInterval = null; // 倒數計時定時器
+    let correctCount = 0; // 當前遊戲答對單字數
+
+    // 音效合成器 (Web Audio API - 無需外部素材)
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // 初始化 Lucide 圖標
+    lucide.createIcons();
+
+    // 更新顯示的 HighScore
+    document.getElementById('highscore-display').textContent = highscore;
+
+    // ==================== 2. 音效系統 (純代碼合成器) ====================
+    function playSynthSound(type) {
+      if (!isSoundOn) return;
+      
+      // 確保 AudioContext 被啟動
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      const now = audioCtx.currentTime;
+
+      if (type === 'success') {
+        // 悅耳的爬升和弦音
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(523.25, now); // C5
+        osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
+        osc.frequency.setValueAtTime(783.99, now + 0.16); // G5
+        osc.frequency.setValueAtTime(1046.50, now + 0.24); // C6
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        osc.start(now);
+        osc.stop(now + 0.4);
+      } else if (type === 'error') {
+        // 低沉的警告音
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.linearRampToValueAtTime(100, now + 0.15);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+        osc.start(now);
+        osc.stop(now + 0.18);
+      } else if (type === 'lose-life') {
+        // 爆炸/撞擊低頻
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(40, now + 0.4);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        osc.start(now);
+        osc.stop(now + 0.5);
+      } else if (type === 'gameover') {
+        // 下墜哀傷的曲調
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(440, now); // A4
+        osc.frequency.setValueAtTime(349.23, now + 0.15); // F4
+        osc.frequency.setValueAtTime(293.66, now + 0.3); // D4
+        osc.frequency.exponentialRampToValueAtTime(100, now + 0.6);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.75);
+        osc.start(now);
+        osc.stop(now + 0.75);
+      }
+    }
+
+    // 語音朗讀系統 (Web Speech API) - 教育心理學：加強聽覺語意連結
+    function speakWord(text) {
+      if (!isSoundOn) return;
+      if ('speechSynthesis' in window) {
+        // 暫停可能正在播的其他語音，避免重疊
+        window.speechSynthesis.cancel();
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-US';
+        utterance.rate = 0.85; // 稍微放慢，便於國小學童清晰辨音
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    // ==================== 3. Canvas 星空背景 ====================
+    const canvas = document.getElementById('starfield');
+    const ctx = canvas.getContext('2d');
+    let stars = [];
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      initStars();
+    }
+
+    function initStars() {
+      stars = [];
+      const count = Math.floor((canvas.width * canvas.height) / 10000);
+      for (let i = 0; i < count; i++) {
+        stars.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          radius: Math.random() * 1.5,
+          color: `rgba(${150 + Math.random() * 105}, ${200 + Math.random() * 55}, 255, ${0.2 + Math.random() * 0.6})`,
+          speed: 0.1 + Math.random() * 0.3
+        });
+      }
+    }
+
+    // 更新並繪製背景星星
+    function updateAndDrawStars() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      stars.forEach(star => {
+        // 緩慢向下飄動，加強太空飛行感
+        star.y += star.speed;
+        if (star.y > canvas.height) {
+          star.y = 0;
+          star.x = Math.random() * canvas.width;
+        }
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+        ctx.fillStyle = star.color;
+        ctx.fill();
+      });
+      requestAnimationFrame(updateAndDrawStars);
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+    requestAnimationFrame(updateAndDrawStars);
+
+    // ==================== 4. 遊戲核心邏輯 ====================
+
+    // 生命值愛心 UI 渲染
+    function updateHeartsUI() {
+      const container = document.getElementById('hearts-container');
+      container.innerHTML = '';
+      for (let i = 0; i < 3; i++) {
+        const heart = document.createElement('i');
+        heart.setAttribute('data-lucide', 'heart');
+        if (i < lives) {
+          heart.className = 'w-4 h-4 sm:w-5 sm:h-5 fill-pink-500 text-pink-500 transform scale-100 transition-all duration-300 drop-shadow-[0_0_5px_rgba(244,63,94,0.6)]';
+        } else {
+          // 扣血愛心碎裂、變灰，心理學非突兀反饋
+          heart.className = 'w-4 h-4 sm:w-5 sm:h-5 fill-gray-800 text-gray-700 transform scale-75 opacity-40 transition-all duration-300';
+        }
+        container.appendChild(heart);
+      }
+      lucide.createIcons({ attrs: { 'data-lucide': true } });
+    }
+
+    // 隨機選一個單字並隱藏一個隨機字母 (底線代替)
+    function generateNewWord() {
+      if (!gameActive) return;
+      const randObj = VOCABULARY[Math.floor(Math.random() * VOCABULARY.length)];
+      const text = randObj.english;
+      
+      // 隨機抽取一個不為空格的字母作為挖空目標
+      const hiddenIdx = Math.floor(Math.random() * text.length);
+      const correctChar = text[hiddenIdx];
+
+      // 建立顯示用陣列
+      const displayArr = text.split('').map((char, index) => {
+        return index === hiddenIdx ? '＿' : char;
+      });
+
+      // 清除舊的容器（如果存在）
+      const container = document.getElementById('words-container');
+      container.innerHTML = '';
+
+      // 在 DOM 中創建單字元素
+      const wordEl = document.createElement('div');
+      // 隨機橫向位置 (保留邊緣 margin 15%)
+      const minX = 15;
+      const maxX = 85;
+      const randomX = minX + Math.random() * (maxX - minX);
+
+      // 設定樣式
+      wordEl.className = "absolute text-center select-none transform -translate-x-1/2 flex flex-col items-center group cursor-default transition-transform duration-100";
+      wordEl.style.left = `${randomX}%`;
+      wordEl.style.top = `-80px`; // 從上方視線外掉落
+
+      // HTML 結構：英文單字大字、底下的中文提示 (幫助鷹架搭建)
+      wordEl.innerHTML = `
+        <div class="flex items-center space-x-1 bg-gray-900/90 border border-indigo-500/30 px-5 py-3 rounded-2xl shadow-2xl backdrop-blur-sm group-hover:scale-105 transition-all">
+          ${displayArr.map((char, idx) => {
+            if (idx === hiddenIdx) {
+              return `<span class="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-amber-500 animate-pulse border-b-4 border-yellow-400 px-1 game-font">_</span>`;
+            } else {
+              return `<span class="text-3xl md:text-4xl font-extrabold text-white game-font">${char}</span>`;
+            }
+          }).join('')}
+        </div>
+        <div class="mt-2 text-xs md:text-sm bg-indigo-950/90 text-indigo-300 px-3 py-1 rounded-full border border-indigo-800/50 shadow-md">
+          ${randObj.chinese}
+        </div>
+      `;
+
+      container.appendChild(wordEl);
+
+      // 當前單字的所有核心狀態
+      currentWordObj = randObj;
+      currentWordState = {
+        element: wordEl,
+        fullWord: text,
+        hiddenIndex: hiddenIdx,
+        correctChar: correctChar,
+        y: -80,
+        xPercent: randomX,
+        height: wordEl.offsetHeight || 120,
+        solved: false
+      };
+    }
+
+    // 粒子爆炸效果 (玩家拼對時的反饋)
+    function createSuccessParticles(x, y) {
+      const effectContainer = document.getElementById('effects-container');
+      const particleCount = 15;
+
+      for (let i = 0; i < particleCount; i++) {
+        const particle = document.createElement('div');
+        particle.className = "absolute w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-green-500 correct-particle";
+        particle.style.left = `${x}px`;
+        particle.style.top = `${y}px`;
+
+        // 產生發散方向向量
+        const angle = Math.random() * Math.PI * 2;
+        const velocity = 50 + Math.random() * 150;
+        const targetX = Math.cos(angle) * velocity;
+        const targetY = Math.sin(angle) * velocity - 50; // 微偏上
+
+        particle.style.setProperty('--tw-translate-x', `${targetX}px`);
+        particle.style.setProperty('--tw-translate-y', `${targetY}px`);
+
+        effectContainer.appendChild(particle);
+
+        // 自動清理
+        setTimeout(() => {
+          particle.remove();
+        }, 800);
+      }
+    }
+
+    // ==================== 5. 動畫更新迴圈 (requestAnimationFrame) ====================
+    function updateGame(timestamp) {
+      if (!gameActive) return;
+
+      if (!lastTime) lastTime = timestamp;
+      const deltaTime = timestamp - lastTime;
+      lastTime = timestamp;
+
+      const gameZone = document.getElementById('game-zone');
+      const gameZoneHeight = gameZone.offsetHeight;
+
+      if (currentWordState && !currentWordState.solved) {
+        // 英文降落速度調慢：基礎速度由 1.1 降到 0.55，使小學生更好反應
+        const baseSpeed = 0.55; 
+        const currentSpeed = baseSpeed * speedMultiplier;
+        
+        currentWordState.y += currentSpeed;
+        currentWordState.element.style.top = `${currentWordState.y}px`;
+
+        // 計算底部危險防線界線 (觸發警示線高度)
+        const dangerY = gameZoneHeight - 80;
+
+        // 若單字碰觸危險防線
+        if (currentWordState.y >= dangerY) {
+          triggerDamage();
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(updateGame);
+    }
+
+    // 單字觸底漏接：扣除生命值
+    function triggerDamage() {
+      // 扣除生命
+      lives--;
+      updateHeartsUI();
+      playSynthSound('lose-life');
+
+      // 螢幕與生命面板晃動、發紅警示
+      const gameZone = document.getElementById('game-zone');
+      gameZone.classList.add('ring-2', 'ring-red-500/80', 'shake-error');
+      setTimeout(() => {
+        gameZone.classList.remove('ring-2', 'ring-red-500/80', 'shake-error');
+      }, 500);
+
+      // 清除目前單字，生成下一個
+      if (lives <= 0) {
+        endGame(false); // 因生命歸零結束
+      } else {
+        generateNewWord();
+      }
+    }
+
+    // ==================== 6. 輸入處理 (虛擬 & 實體鍵盤) ====================
+
+    function handleInput(char) {
+      if (!gameActive || !currentWordState || currentWordState.solved) return;
+
+      const pressedKey = char.toUpperCase();
+      const targetChar = currentWordState.correctChar;
+
+      // 取得虛擬鍵盤對應的 DOM 按鈕
+      const kbdBtn = document.querySelector(`.kbd-btn[data-key="${pressedKey}"]`);
+
+      if (pressedKey === targetChar) {
+        // 1. 拼字正確
+        currentWordState.solved = true;
+        correctCount++;
+        score += 10;
+        document.getElementById('score-display').textContent = score;
+
+        // 更新難度乘數 (每得 50 分小提速，幅度也調緩)
+        speedMultiplier = 1.0 + Math.floor(score / 50) * 0.08;
+
+        // 視覺特效：單字翻綠、微上飄
+        const el = currentWordState.element;
+        el.style.transform = 'translate(-50%, -30px) scale(1.1)';
+        el.querySelector('div').className = "flex items-center space-x-1 bg-emerald-500 text-white px-5 py-3 rounded-2xl shadow-[0_0_20px_rgba(16,185,129,0.6)] border border-emerald-400";
+        el.querySelectorAll('span').forEach(span => span.className = "text-3xl md:text-4xl font-extrabold text-white game-font");
+
+        // 獲得按鍵正確閃爍
+        if (kbdBtn) {
+          kbdBtn.classList.add('kbd-btn-success');
+          setTimeout(() => kbdBtn.classList.remove('kbd-btn-success'), 200);
+        }
+
+        // 音訊與語意回饋：播放成功音 + 單字英文朗讀
+        playSynthSound('success');
+        speakWord(currentWordState.fullWord);
+
+        // 生成粒子發散位置
+        const rect = el.getBoundingClientRect();
+        const zoneRect = document.getElementById('game-zone').getBoundingClientRect();
+        const emitX = rect.left + rect.width / 2 - zoneRect.left;
+        const emitY = rect.top + rect.height / 2 - zoneRect.top;
+        createSuccessParticles(emitX, emitY);
+
+        // 短暫延遲後，清空並生成下一個
+        setTimeout(() => {
+          if (gameActive) generateNewWord();
+        }, 1000);
+
+      } else {
+        // 2. 拼字錯誤
+        // 僅對鍵盤按鈕施予警示，非嚴厲懲罰，保護挫折忍受力
+        if (kbdBtn) {
+          kbdBtn.classList.add('kbd-btn-error');
+          setTimeout(() => kbdBtn.classList.remove('kbd-btn-error'), 300);
+        }
+        playSynthSound('error');
+      }
+    }
+
+    // 監聽實體鍵盤按下事件
+    window.addEventListener('keydown', (e) => {
+      // 確保是 A-Z 字母
+      const key = e.key.toUpperCase();
+      if (/^[A-Z]$/.test(key)) {
+        // 模擬虛擬鍵盤按壓視覺回饋
+        const kbdBtn = document.querySelector(`.kbd-btn[data-key="${key}"]`);
+        if (kbdBtn) {
+          kbdBtn.classList.add('kbd-btn-active');
+          setTimeout(() => kbdBtn.classList.remove('kbd-btn-active'), 100);
+        }
+        handleInput(key);
+      }
+    });
+
+    // 監聽虛擬鍵盤觸發事件
+    document.querySelectorAll('.kbd-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.getAttribute('data-key');
+        handleInput(key);
+      });
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // 防止雙擊縮放
+        const key = btn.getAttribute('data-key');
+        handleInput(key);
+      }, { passive: false });
+    });
+
+    // ==================== 7. 遊戲運作控制流程 ====================
+
+    function startGame() {
+      // 重設核心指標
+      score = 0;
+      lives = 3;
+      correctCount = 0;
+      timeLeft = 30; // 30秒限時
+      speedMultiplier = 1.0;
+      gameActive = true;
+      lastTime = 0;
+
+      // 重設 UI 面板
+      document.getElementById('score-display').textContent = '0';
+      document.getElementById('timer-display').textContent = '30s';
+      document.getElementById('timer-display').className = "text-base sm:text-2xl font-black text-cyan-400 game-font transition-all duration-300";
+      updateHeartsUI();
+
+      // 隱藏引導層與結算視窗
+      document.getElementById('game-guide').classList.add('opacity-0', 'pointer-events-none');
+      document.getElementById('game-over-modal').classList.add('hidden');
+
+      // 開始第一顆單字與動畫序列
+      generateNewWord();
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      animationFrameId = requestAnimationFrame(updateGame);
+
+      // 開啟限時 30 秒倒數計時器
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        if (!gameActive) return;
+        timeLeft--;
+        document.getElementById('timer-display').textContent = `${timeLeft}s`;
+
+        // 最後五秒極限跳動警示
+        if (timeLeft <= 5) {
+          document.getElementById('timer-display').className = "text-xl sm:text-3xl font-black text-red-500 game-font animate-ping";
+          setTimeout(() => {
+            if (gameActive) {
+              document.getElementById('timer-display').className = "text-xl sm:text-3xl font-black text-red-500 game-font";
+            }
+          }, 300);
+        }
+
+        if (timeLeft <= 0) {
+          clearInterval(timerInterval);
+          endGame(true); // 因時間到而結束
+        }
+      }, 1000);
+    }
+
+    function endGame(isTimeUp = false) {
+      gameActive = false;
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      if (timerInterval) clearInterval(timerInterval);
+      
+      // 保存最高分
+      if (score > highscore) {
+        highscore = score;
+        localStorage.setItem('defense_high_score', highscore.toString());
+        document.getElementById('highscore-display').textContent = highscore;
+      }
+
+      // 播放 GameOver 音效
+      playSynthSound('gameover');
+
+      // 設定統計數據與溫暖評價 (教育心理學中的歸因引導)
+      document.getElementById('final-score').textContent = score;
+      document.getElementById('final-highscore').textContent = highscore;
+      document.getElementById('stat-solved').textContent = `${correctCount} 題`;
+
+      const modalTitle = document.querySelector('#game-over-modal h2');
+      const iconContainer = document.querySelector('#game-over-modal .w-16');
+      const motivationalMsg = document.getElementById('motivational-msg');
+
+      if (isTimeUp) {
+        // 時間到結束
+        modalTitle.textContent = "時間到！TIME'S UP";
+        modalTitle.className = "text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-indigo-400 to-purple-400 mb-2";
+        iconContainer.className = "w-16 h-16 bg-cyan-500/20 text-cyan-500 rounded-full flex items-center justify-center mx-auto mb-4 border border-cyan-500/30";
+        iconContainer.innerHTML = '<i data-lucide="clock" class="w-8 h-8"></i>';
+        
+        if (score === 0) {
+          motivationalMsg.textContent = "三十秒很快對吧？沒關係，下一局看準單字，直接大膽拼寫！";
+        } else if (score < 50) {
+          motivationalMsg.textContent = "太棒了！能在 30 秒內答對這麼多題！反應力無庸置疑！";
+        } else {
+          motivationalMsg.textContent = "太不可思議了！你在 30 秒內拼對了超多單字，是個頂尖的單字特攻隊！";
+        }
+      } else {
+        // 血量歸零結束
+        modalTitle.textContent = "防線失守！";
+        modalTitle.className = "text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-pink-400 to-purple-400 mb-2";
+        iconContainer.className = "w-16 h-16 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30";
+        iconContainer.innerHTML = '<i data-lucide="gamepad-2" class="w-8 h-8"></i>';
+        motivationalMsg.textContent = "太可惜了！再挑戰一次，相信你可以把剛才記住的單字全部拼對！";
+      }
+
+      // 更新彈出的 Lucide 圖標
+      lucide.createIcons({ attrs: { 'data-lucide': true } });
+
+      // 顯示結束彈窗
+      document.getElementById('game-over-modal').classList.remove('hidden');
+    }
+
+    // ==================== 8. 設定與控制項按鈕事件 ====================
+
+    // 開始按鈕
+    document.getElementById('start-btn').addEventListener('click', startGame);
+
+    // 再玩一次按鈕
+    document.getElementById('restart-btn').addEventListener('click', startGame);
+
+    // 音量切換開關
+    const soundBtn = document.getElementById('sound-btn');
+    const soundIcon = document.getElementById('sound-icon');
+    
+    soundBtn.addEventListener('click', () => {
+      isSoundOn = !isSoundOn;
+      if (isSoundOn) {
+        soundIcon.setAttribute('data-lucide', 'volume-2');
+        soundBtn.classList.remove('opacity-50');
+      } else {
+        soundIcon.setAttribute('data-lucide', 'volume-x');
+        soundBtn.classList.add('opacity-50');
+        // 同步關閉當前可能播放中的語音
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      }
+      lucide.createIcons({ attrs: { 'data-lucide': true } });
+    });
+  </script>
+</body>
+</html>
